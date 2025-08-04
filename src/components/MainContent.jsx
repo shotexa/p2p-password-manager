@@ -40,9 +40,9 @@ export const MainContent = ({ searchTerm }) => {
         console.log("Joining swarm with topic:", newCore.discoveryKey);
         swarm.join(topic, { server: true, client: true });
 
-                  newCore.on("append", async () => {
-            const updatedEntries = await findEntriesByTitle(newBee);
-            setEntries(updatedEntries);
+        newCore.on("append", async () => {
+          const updatedEntries = await findEntriesByTitle(newBee);
+          setEntries(updatedEntries);
         });
 
         setStore(newStore);
