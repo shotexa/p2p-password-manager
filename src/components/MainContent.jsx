@@ -1,6 +1,6 @@
 import { EntriesList } from "@src/components/EntriesList";
 import { DetailPanel } from "@src/components/DetailPanel";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Corestore from "corestore";
 import Hyperbee from "hyperbee";
 import Hyperswarm from "hyperswarm";
@@ -12,12 +12,12 @@ export const MainContent = ({ searchTerm }) => {
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [entries, setEntries] = useState([]);
-  const [store, setStore] = useState(null);
-  const [bee, setBee] = useState(null);
-  const [swarm, setSwarm] = useState(null);
+  const storeRef = useRef(null);
+  const beeRef = useRef(null);
+  const swarmRef = useRef(null);
 
   Pear.teardown(async () => {
-    await Promise.all([store.close(), swarm.destroy()]);
+    await Promise.all([storeRef.current?.close(), swarmRef.current?.destroy()]);
   });
 
   useEffect(() => {
@@ -47,9 +47,9 @@ export const MainContent = ({ searchTerm }) => {
           setEntries(updatedEntries);
         });
 
-        setStore(newStore);
-        setBee(newBee);
-        setSwarm(swarm);
+        storeRef.current = newStore;
+        beeRef.current = newBee;
+        swarmRef.current = swarm;
 
         // Load initial entries
         const initialEntries = await findEntriesByTitle(newBee);
@@ -62,12 +62,12 @@ export const MainContent = ({ searchTerm }) => {
     initStore();
 
     return () => {
-      if (store) store.close().catch(console.error);
-      if (swarm) swarm.destroy().catch(console.error);
+      if (storeRef.current) storeRef.current.close().catch(console.error);
+      if (swarmRef.current) swarmRef.current.destroy().catch(console.error);
     };
   }, []);
 
-  const findEntriesByTitle = async (beeInstance = bee) => {
+  const findEntriesByTitle = async (beeInstance = beeRef.current) => {
     if (!beeInstance) return [];
 
     const entries = [];
@@ -93,7 +93,7 @@ export const MainContent = ({ searchTerm }) => {
   };
 
   const handleSaveNewEntry = async (newEntry) => {
-    if (!bee) {
+    if (!beeRef.current) {
       console.error("Store not initialized");
       return;
     }
@@ -105,7 +105,7 @@ export const MainContent = ({ searchTerm }) => {
         ...newEntry,
       };
 
-      await bee.put(id, JSON.stringify(entryToSave));
+      await beeRef.current.put(id, JSON.stringify(entryToSave));
       setIsCreatingNew(false);
     } catch (error) {
       console.error("Failed to save entry:", error);
@@ -130,7 +130,7 @@ export const MainContent = ({ searchTerm }) => {
   }, [searchTerm, entries]);
 
   const handleUpdateEntry = async (id, updatedData) => {
-    if (!bee) {
+    if (!beeRef.current) {
       console.error("Store not initialized");
       return;
     }
@@ -142,7 +142,7 @@ export const MainContent = ({ searchTerm }) => {
         updatedDate: new Date().toISOString(),
       };
 
-      await bee.put(id, JSON.stringify(entryToUpdate));
+      await beeRef.current.put(id, JSON.stringify(entryToUpdate));
       setSelectedEntry(null);
     } catch (error) {
       console.error("Failed to update entry:", error);
@@ -150,13 +150,13 @@ export const MainContent = ({ searchTerm }) => {
   };
 
   const handleDeleteEntry = async (id) => {
-    if (!bee) {
+    if (!beeRef.current) {
       console.error("Store not initialized");
       return;
     }
 
     try {
-      await bee.del(id);
+      await beeRef.current.del(id);
       setSelectedEntry(null);
     } catch (error) {
       console.error("Failed to delete entry:", error);
