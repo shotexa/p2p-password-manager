@@ -16,7 +16,9 @@ export const MainContent = ({ searchTerm }) => {
   const [bee, setBee] = useState(null);
   const [swarm, setSwarm] = useState(null);
 
-  console.log("keyPairSeed is", keyPairSeed);
+  Pear.teardown(async () => {
+    await Promise.all([store.close(), swarm.destroy()]);
+  });
 
   useEffect(() => {
     const initStore = async () => {
@@ -75,10 +77,6 @@ export const MainContent = ({ searchTerm }) => {
     }
     return entries;
   };
-
-  Pear.teardown(async () => {
-    await Promise.all([store.close(), swarm.destroy()]);
-  });
 
   const handleEntrySelect = (entry) => {
     if (selectedEntry?.id === entry.id) {
