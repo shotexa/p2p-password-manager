@@ -34,7 +34,7 @@ export const MainContent = ({ searchTerm }) => {
         });
 
         const swarm = new Hyperswarm();
-        swarm.on("connection", (conn) => store.replicate(conn));
+        swarm.on("connection", (conn) => storeRef.current.replicate(conn));
 
         await newCore.ready();
 
