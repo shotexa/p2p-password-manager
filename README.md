@@ -61,6 +61,14 @@ When you first open the application, you have two options:
 - This deterministic seed is used to generate a topic that peers use to find each other
 - Only peers with the same mnemonic words and password combination can generate a topic and join it to fetch passwords
 
+### Data replication
+Each peer maintains a single writable hypercore for storing their own password entries. When peers connect, they exchange their hypercore keys to establish replication. For each connected peer, a new read-only hypercore is created to receive and track changes from that specific peer. This architecture means each peer has:
+
+- One writable hypercore containing their own entries
+- Multiple read-only hypercores (one per connected peer) for receiving updates
+
+upon every new change peer will use all the available data to derive the most up to date state of the passwords
+
 ### Security Model
 
 - The mnemonic words and password combination ensures that only authorized peers can access the shared passwords
