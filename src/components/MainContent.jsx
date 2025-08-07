@@ -1,3 +1,5 @@
+// MainContent.jsx
+
 import { EntriesList } from "@src/components/EntriesList";
 import { DetailPanel } from "@src/components/DetailPanel";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -133,6 +135,7 @@ export const MainContent = ({ searchTerm }) => {
 
       // Setup core discovery handler
       store.on("core-open", (peerCore) => {
+        console.log("Core-open event for:", b4a.toString(peerCore.key, "hex").slice(0, 6) + "...");
         // Ignore our own core
         if (b4a.equals(peerCore.key, core.key)) return;
         setupPeerCore(peerCore);
@@ -141,52 +144,64 @@ export const MainContent = ({ searchTerm }) => {
       const swarm = new Hyperswarm();
       swarmRef.current = swarm;
 
+      // Keep track of connected peers and their cores
+      const connectedPeers = new Set();
+
       swarm.on("connection", async (socket, peerInfo) => {
-        console.log("New peer connection from:", peerInfo?.publicKey ? 
-          b4a.toString(peerInfo.publicKey, "hex").slice(0, 6) + "..." : "unknown");
+        const peerId = peerInfo?.publicKey ? b4a.toString(peerInfo.publicKey, "hex") : "unknown";
+        console.log("New peer connection from:", peerId.slice(0, 6) + "...");
+
+        // Avoid duplicate processing
+        if (connectedPeers.has(peerId)) {
+          console.log("Already connected to this peer");
+          return;
+        }
+        connectedPeers.add(peerId);
 
         // Create a replication stream for the store
         const stream = store.replicate(socket);
 
-        // IMPORTANT: Announce our core to the peer
-        // This tells the peer which cores we have that they should replicate
+        // When a peer disconnects, remove from set
+        socket.on("close", () => {
+          console.log("Peer disconnected:", peerId.slice(0, 6) + "...");
+          connectedPeers.delete(peerId);
+        });
+
+        // Log replication events
         stream.on("open", () => {
-          console.log("Replication stream opened, announcing our core...");
-          // The store should handle this automatically, but we can be explicit
-          store.get({ key: core.key }); // Ensure our core is in the namespace
+          console.log("Replication stream opened with peer:", peerId.slice(0, 6) + "...");
         });
 
         // Handle replication errors
         stream.on("error", (err) => {
-          console.error("Replication error:", err);
+          console.error("Replication error with peer", peerId.slice(0, 6) + "...:", err);
         });
 
-        // After replication starts, try to discover peer cores
-        // This is a workaround for cases where core-open doesn't fire
+        // IMPORTANT: Explicitly request the peer's "passwords" core
+        // This ensures both peers know to replicate this specific namespace
         setTimeout(async () => {
           try {
-            // Get all cores in the store's namespace
-            const cores = store.cores;
-            if (cores) {
-              for (const [, peerCore] of cores) {
-                if (!b4a.equals(peerCore.key, core.key)) {
-                  await setupPeerCore(peerCore);
-                }
-              }
+            // Try to get the peer's passwords core
+            // The store replication should handle exchanging these
+            const peerPasswordsCore = store.get({ name: "passwords", cache: false });
+            
+            // If we got a different core than ours, it's from a peer
+            if (peerPasswordsCore && !b4a.equals(peerPasswordsCore.key, core.key)) {
+              console.log("Found peer's passwords core");
+              await setupPeerCore(peerPasswordsCore);
             }
           } catch (error) {
-            console.error("Error discovering peer cores:", error);
+            console.error("Error accessing peer's passwords core:", error);
           }
-        }, 1000);
+        }, 2000); // Give replication time to exchange metadata
       });
 
       // Join the swarm on a topic derived from the seed
-      await swarm.join(keyPairSeed, { server: true, client: true });
-      
-      const discovery = swarm.join(keyPairSeed, { server: true, client: true });
+      const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
       await discovery.flushed();
       
-      console.log("Joined swarm with public key:", b4a.toString(swarm.keyPair.publicKey, "hex"));
+      console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
+      console.log("Swarm public key:", b4a.toString(swarm.keyPair.publicKey, "hex"));
 
       // Initial load of data
       await updateEntriesFromAllSources();
