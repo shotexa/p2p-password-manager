@@ -1,4 +1,4 @@
-// MainContent.jsx
+// MainContent.jsx - Fixed version with proper core replication
 
 import { EntriesList } from "@src/components/EntriesList";
 import { DetailPanel } from "@src/components/DetailPanel";
@@ -21,7 +21,7 @@ export const MainContent = ({ searchTerm }) => {
   const writableBeeRef = useRef(null);
   const swarmRef = useRef(null);
 
-  // peer publicKey (hex) -> { core, bee }
+  // peer coreKey (hex) -> { core, bee }
   const peerStoresRef = useRef(new Map());
 
   // Graceful shutdown
@@ -50,7 +50,7 @@ export const MainContent = ({ searchTerm }) => {
               }
               count++;
             } catch (e) {
-              console.error("Failed to parse entry:", e, "Value:", value);
+              console.error("Failed to parse entry:", e);
             }
           }
           console.log(`Processed ${count} entries from ${sourceName}`);
@@ -77,19 +77,33 @@ export const MainContent = ({ searchTerm }) => {
   };
 
   const setupPeerCore = async (peerCore) => {
-    const peerKeyHex = b4a.toString(peerCore.key, "hex");
-    
-    // Skip if already tracking this peer
-    if (peerStoresRef.current.has(peerKeyHex)) {
-      console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
-      return;
-    }
-
-    console.log("Setting up peer core:", peerKeyHex.slice(0, 6) + "...");
-
     try {
+      if (!peerCore || !peerCore.key) {
+        console.error("Invalid peer core provided");
+        return;
+      }
+
+      const peerKeyHex = b4a.toString(peerCore.key, "hex");
+      
+      // Skip if already tracking this peer
+      if (peerStoresRef.current.has(peerKeyHex)) {
+        console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
+        return;
+      }
+
+      // Skip if this is our own core
+      if (writableCoreRef.current && b4a.equals(peerCore.key, writableCoreRef.current.key)) {
+        console.log("Skipping our own core");
+        return;
+      }
+
+      console.log("Setting up peer core:", peerKeyHex.slice(0, 6) + "...");
+
       // Wait for the core to be ready
       await peerCore.ready();
+      
+      // Start downloading the peer's data
+      peerCore.download({ start: 0, end: -1 });
       
       const peerBee = new Hyperbee(peerCore, {
         keyEncoding: "utf-8",
@@ -106,113 +120,158 @@ export const MainContent = ({ searchTerm }) => {
         updateEntriesFromAllSources();
       });
 
-      // Also update when we first discover them
+      // Update when we first discover them
       await updateEntriesFromAllSources();
     } catch (error) {
-      console.error(`Error setting up peer core ${peerKeyHex.slice(0, 6)}...:`, error);
+      console.error(`Error setting up peer core:`, error);
     }
   };
 
   useEffect(() => {
     const init = async () => {
-      const store = new Corestore(Pear.config.storage);
-      storeRef.current = store;
+      try {
+        const store = new Corestore(Pear.config.storage);
+        storeRef.current = store;
 
-      // Our own writable core and bee
-      const core = store.get({ name: "passwords" });
-      writableCoreRef.current = core;
-      const bee = new Hyperbee(core, {
-        keyEncoding: "utf-8",
-        valueEncoding: "utf-8",
-      });
-      writableBeeRef.current = bee;
-      await core.ready();
+        // Our own writable core and bee
+        const core = store.get({ name: "passwords" });
+        writableCoreRef.current = core;
+        await core.ready();
 
-      console.log("My core key is:", b4a.toString(core.key, "hex"));
+        const bee = new Hyperbee(core, {
+          keyEncoding: "utf-8",
+          valueEncoding: "utf-8",
+        });
+        writableBeeRef.current = bee;
+        await bee.ready();
 
-      // Update UI whenever our own data changes
-      core.on("append", updateEntriesFromAllSources);
+        const myCoreKeyHex = b4a.toString(core.key, "hex");
+        console.log("My core key is:", myCoreKeyHex);
 
-      // Setup core discovery handler
-      store.on("core-open", (peerCore) => {
-        console.log("Core-open event for:", b4a.toString(peerCore.key, "hex").slice(0, 6) + "...");
-        // Ignore our own core
-        if (b4a.equals(peerCore.key, core.key)) return;
-        setupPeerCore(peerCore);
-      });
-
-      const swarm = new Hyperswarm();
-      swarmRef.current = swarm;
-
-      // Keep track of connected peers and their cores
-      const connectedPeers = new Set();
-
-      swarm.on("connection", async (socket, peerInfo) => {
-        const peerId = peerInfo?.publicKey ? b4a.toString(peerInfo.publicKey, "hex") : "unknown";
-        console.log("New peer connection from:", peerId.slice(0, 6) + "...");
-
-        // Avoid duplicate processing
-        if (connectedPeers.has(peerId)) {
-          console.log("Already connected to this peer");
-          return;
-        }
-        connectedPeers.add(peerId);
-
-        // Create a replication stream for the store
-        const stream = store.replicate(socket);
-
-        // When a peer disconnects, remove from set
-        socket.on("close", () => {
-          console.log("Peer disconnected:", peerId.slice(0, 6) + "...");
-          connectedPeers.delete(peerId);
+        // Update UI whenever our own data changes
+        core.on("append", () => {
+          console.log("Local data updated");
+          updateEntriesFromAllSources();
         });
 
-        // Log replication events
-        stream.on("open", () => {
-          console.log("Replication stream opened with peer:", peerId.slice(0, 6) + "...");
-        });
-
-        // Handle replication errors
-        stream.on("error", (err) => {
-          console.error("Replication error with peer", peerId.slice(0, 6) + "...:", err);
-        });
-
-        // IMPORTANT: Explicitly request the peer's "passwords" core
-        // This ensures both peers know to replicate this specific namespace
-        setTimeout(async () => {
-          try {
-            // Try to get the peer's passwords core
-            // The store replication should handle exchanging these
-            const peerPasswordsCore = store.get({ name: "passwords", cache: false });
-            
-            // If we got a different core than ours, it's from a peer
-            if (peerPasswordsCore && !b4a.equals(peerPasswordsCore.key, core.key)) {
-              console.log("Found peer's passwords core");
-              await setupPeerCore(peerPasswordsCore);
-            }
-          } catch (error) {
-            console.error("Error accessing peer's passwords core:", error);
+        // Listen for when new cores are added to the store
+        store.on("core-add", (core) => {
+          console.log("Core added event:", core.key ? b4a.toString(core.key, "hex").slice(0, 6) + "..." : "unknown");
+          if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
+            setupPeerCore(core);
           }
-        }, 2000); // Give replication time to exchange metadata
-      });
+        });
 
-      // Join the swarm on a topic derived from the seed
-      const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
-      await discovery.flushed();
-      
-      console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
-      console.log("Swarm public key:", b4a.toString(swarm.keyPair.publicKey, "hex"));
+        // Listen for when cores are opened
+        store.on("core-open", (core) => {
+          console.log("Core opened event:", core.key ? b4a.toString(core.key, "hex").slice(0, 6) + "..." : "unknown");
+          if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
+            setupPeerCore(core);
+          }
+        });
 
-      // Initial load of data
-      await updateEntriesFromAllSources();
+        const swarm = new Hyperswarm();
+        swarmRef.current = swarm;
+
+        // Track active connections
+        const activeConnections = new Map();
+
+        swarm.on("connection", async (socket, peerInfo) => {
+          const peerId = peerInfo?.publicKey ? b4a.toString(peerInfo.publicKey, "hex") : `unknown-${Date.now()}`;
+          console.log("New peer connection from:", peerId.slice(0, 6) + "...");
+
+          // Track this connection
+          activeConnections.set(peerId, socket);
+
+          // Handle disconnection
+          socket.on("close", () => {
+            console.log("Peer disconnected:", peerId.slice(0, 6) + "...");
+            activeConnections.delete(peerId);
+          });
+
+          socket.on("error", (err) => {
+            console.error("Socket error with peer", peerId.slice(0, 6) + "...:", err.message);
+            activeConnections.delete(peerId);
+          });
+
+          try {
+            // Replicate the store with this peer
+            const stream = store.replicate(socket);
+            
+            stream.on("error", (err) => {
+              console.error("Replication stream error:", err.message);
+            });
+
+            // Exchange core keys manually as a backup
+            // Send our core key
+            const announcement = Buffer.from(JSON.stringify({
+              type: "core-key",
+              key: myCoreKeyHex,
+              name: "passwords"
+            }) + "\n");
+            
+            socket.write(announcement);
+
+            // Listen for peer's core key
+            let buffer = "";
+            const handleData = async (data) => {
+              buffer += data.toString();
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  const msg = JSON.parse(line);
+                  if (msg.type === "core-key" && msg.key && msg.name === "passwords") {
+                    console.log("Received peer core key:", msg.key.slice(0, 6) + "...");
+                    
+                    if (msg.key !== myCoreKeyHex) {
+                      // Get or create the peer's core in our store
+                      const peerCoreKey = b4a.from(msg.key, "hex");
+                      const peerCore = store.get({ key: peerCoreKey, valueEncoding: "binary" });
+                      
+                      // Set up the peer core
+                      await setupPeerCore(peerCore);
+                    }
+                  }
+                } catch (e) {
+                  // Not JSON or not our message, ignore
+                }
+              }
+            };
+
+            socket.on("data", handleData);
+
+          } catch (error) {
+            console.error("Error setting up replication:", error);
+          }
+        });
+
+        // Join the swarm on a topic derived from the seed
+        const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
+        await discovery.flushed();
+        
+        console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
+        console.log("Active connections will appear above when peers connect");
+
+        // Initial load of data
+        await updateEntriesFromAllSources();
+      } catch (error) {
+        console.error("Error initializing:", error);
+      }
     };
 
     init();
 
     return () => {
       // Cleanup on component unmount
-      if (swarmRef.current) swarmRef.current.destroy().catch(console.error);
-      if (storeRef.current) storeRef.current.close().catch(console.error);
+      if (swarmRef.current) {
+        swarmRef.current.destroy().catch(console.error);
+      }
+      if (storeRef.current) {
+        storeRef.current.close().catch(console.error);
+      }
     };
   }, [keyPairSeed]); // Rerun if seed changes
 
@@ -278,6 +337,11 @@ export const MainContent = ({ searchTerm }) => {
 
     try {
       const originalEntry = entries.find(e => e.id === id);
+      if (!originalEntry) {
+        console.error("Original entry not found");
+        return;
+      }
+
       const entryToUpdate = {
         ...originalEntry,
         ...updatedData,
