@@ -76,23 +76,23 @@ export const MainContent = ({ searchTerm }) => {
 
   const setupPeerCore = async (peerCore) => {
     try {
-      if (!peerCore || !peerCore.key) {
-        console.error("Invalid peer core provided");
-        return;
-      }
+      // if (!peerCore || !peerCore.key) {
+      //   console.error("Invalid peer core provided");
+      //   return;
+      // }
 
       const peerKeyHex = b4a.toString(peerCore.key, "hex");
       
-      if (peerStoresRef.current.has(peerKeyHex)) {
-        console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
-        return;
-      }
+      // if (peerStoresRef.current.has(peerKeyHex)) {
+      //   console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
+      //   return;
+      // }
 
-      // Skip if this is our own core
-      if (writableCoreRef.current && b4a.equals(peerCore.key, writableCoreRef.current.key)) {
-        console.log("Skipping our own core");
-        return;
-      }
+      // // Skip if this is our own core
+      // if (writableCoreRef.current && b4a.equals(peerCore.key, writableCoreRef.current.key)) {
+      //   console.log("Skipping our own core");
+      //   return;
+      // }
 
       console.log("Setting up peer core:", peerKeyHex);
 
@@ -163,13 +163,6 @@ export const MainContent = ({ searchTerm }) => {
               console.error("Replication stream error:", err.message);
             });
 
-            // Exchange core keys manually as a backup
-            // Send our core key
-            const announcement = Buffer.from(JSON.stringify({
-              type: "core-key",
-              key: myCoreKeyHex,
-              name: "passwords"
-            }) + "\n");
             
             socket.write(core.key);
 
