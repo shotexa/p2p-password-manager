@@ -22,7 +22,6 @@ export const MainContent = ({ searchTerm }) => {
   // peer coreKey (hex) -> { core, bee }
   const peerStoresRef = useRef(new Map());
 
-  // Graceful shutdown
   Pear.teardown(async () => {
     if (swarmRef.current) await swarmRef.current.destroy();
     if (storeRef.current) await storeRef.current.close();
@@ -30,7 +29,7 @@ export const MainContent = ({ searchTerm }) => {
 
   const updateEntriesFromAllSources = async () => {
     try {
-      // Use a map to handle duplicates across cores, keeping the latest version.
+      // Map to handle duplicates across cores, keeping the latest version.
       const allEntriesMap = new Map();
 
       const processBee = async (bee, sourceName = "unknown") => {
@@ -57,17 +56,14 @@ export const MainContent = ({ searchTerm }) => {
         }
       };
 
-      // 1. Process our own entries
       await processBee(writableBeeRef.current, "local");
 
-      // 2. Process all connected peer entries
       for (const [peerKey, { bee }] of peerStoresRef.current.entries()) {
         await processBee(bee, `peer ${peerKey.slice(0, 6)}...`);
       }
 
-      // 3. Update the state with the combined list
       const combinedEntries = Array.from(allEntriesMap.values());
-      console.log(`Total combined entries: ${combinedEntries.length}`);
+      console.log(`Total combined entries length: ${combinedEntries.length}`);
       setEntries(combinedEntries);
     } catch (error) {
       console.error("Error updating entries from all sources:", error);
@@ -76,24 +72,9 @@ export const MainContent = ({ searchTerm }) => {
 
   const setupPeerCore = async (peerCore) => {
     try {
-      // if (!peerCore || !peerCore.key) {
-      //   console.error("Invalid peer core provided");
-      //   return;
-      // }
 
       const peerKeyHex = b4a.toString(peerCore.key, "hex");
       
-      // if (peerStoresRef.current.has(peerKeyHex)) {
-      //   console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
-      //   return;
-      // }
-
-      // // Skip if this is our own core
-      // if (writableCoreRef.current && b4a.equals(peerCore.key, writableCoreRef.current.key)) {
-      //   console.log("Skipping our own core");
-      //   return;
-      // }
-
       console.log("Setting up peer core:", peerKeyHex);
 
       await peerCore.ready();
@@ -109,7 +90,6 @@ export const MainContent = ({ searchTerm }) => {
 
       peerStoresRef.current.set(peerKeyHex, { core: peerCore, bee: peerBee });
 
-      // When the peer's core gets new data, update our entries
       peerCore.on("append", () => {
         console.log(`Peer ${peerKeyHex} appended data, updating.`);
         updateEntriesFromAllSources();
@@ -167,21 +147,18 @@ export const MainContent = ({ searchTerm }) => {
             socket.write(core.key);
 
             // Listen for peer's core key
-            const handleData = async (data) => {
+            socket.once("data", async (data) => {
               const peerCore = store.get({ key: data, valueEncoding: "binary" });
                       
               await setupPeerCore(peerCore);
 
-            };
-
-            socket.once("data", handleData); 
+            }); 
 
           } catch (error) {
             console.error("Error setting up replication:", error);
           }
         });
 
-        // Join the swarm on a topic derived from the seed
         const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
   
         await updateEntriesFromAllSources();
