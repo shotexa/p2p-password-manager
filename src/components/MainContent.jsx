@@ -29,39 +29,37 @@ export const MainContent = ({ searchTerm }) => {
     await Promise.all([storeRef.current?.close(), swarmRef.current?.destroy()]);
   });
 
-  const handlePeerKeyExchange = async (socket, peerInfo) => {
+  const handlePeerKeyExchange = (socket, _) => {
     try {
       const ourPubKey = writableCoreRef.current.key;
       socket.write(ourPubKey);
 
-      const peerPubKey = await new Promise((resolve) => {
-        socket.once("data", (data) => resolve(data));
+      socket.once("data", async (remotePeerPublicKey) => {
+        const peerCore = await storeRef.current.get({
+          key: remotePeerPublicKey,
+        });
+
+        const peerBee = new Hyperbee(peerCore, {
+          keyEncoding: "utf-8",
+          valueEncoding: "utf-8",
+        });
+
+        peerStoresRef.current.set(b4a.toString(remotePeerPublicKey, "hex"), {
+          core: peerCore,
+          bee: peerBee,
+        });
+
+        peerCore.replicate(socket);
+        writableCoreRef.current.replicate(socket);
+
+        peerCore.on("append", () => {
+          console.log("received new data from the peer");
+        });
+
+        peerCore.createReadStream({ live: true }).on("data", (data) => {
+          console.log("peer Data:", b4a.toString(data, "utf8"));
+        });
       });
-
-      const peerCore = await storeRef.current.get({
-        key: peerPubKey,
-      });
-
-      const peerBee = new Hyperbee(peerCore, {
-        keyEncoding: "utf-8",
-        valueEncoding: "utf-8",
-      });
-
-      peerStoresRef.current.set(b4a.toString(peerPubKey, "hex"), {
-        core: peerCore,
-        bee: peerBee,
-      });
-
-      peerCore.replicate(socket);
-      writableCoreRef.current.replicate(socket);
-
-      peerCore.on("append", async () => {
-        console.log("received new data from the peer");
-      });
-
-      for await (const data of peerCore.createReadStream()) {
-        console.log("peer Data:", b4a.toString(data, "utf8"));
-      }
     } catch (error) {
       console.error("Error in peer key exchange:", error);
     }
@@ -78,18 +76,18 @@ export const MainContent = ({ searchTerm }) => {
           valueEncoding: "utf-8",
         });
 
+        await writableCore.ready();
         const swarm = new Hyperswarm();
 
         swarm.on("connection", async (socket, peerInfo) => {
-          await handlePeerKeyExchange(socket, peerInfo);
+          handlePeerKeyExchange(socket, peerInfo);
         });
 
-        await writableCore.ready();
-
+       
         swarm.join(keyPairSeed, { server: true, client: true });
 
         writableCore.on("append", async () => {
-          console.log("Adding data to my own store")
+          console.log("Adding data to my own store");
           await updateEntriesFromAllSources();
         });
 
