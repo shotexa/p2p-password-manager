@@ -41,7 +41,10 @@ export const MainContent = ({ searchTerm }) => {
             const entry = JSON.parse(value);
             const existing = allEntriesMap.get(entry.id);
             // If entry doesn't exist or the new one is more recent, add/update it.
-            if (!existing || new Date(entry.updatedDate) > new Date(existing.updatedDate)) {
+            if (
+              !existing ||
+              new Date(entry.updatedDate) > new Date(existing.updatedDate)
+            ) {
               allEntriesMap.set(entry.id, entry);
             }
           } catch (e) {
@@ -90,7 +93,10 @@ export const MainContent = ({ searchTerm }) => {
         // Ignore our own core
         if (b4a.equals(peerCore.key, core.key)) return;
 
-        console.log("Discovered a peer's core:", b4a.toString(peerCore.key, "hex"));
+        console.log(
+          "Discovered a peer's core:",
+          b4a.toString(peerCore.key, "hex")
+        );
 
         const peerKeyHex = b4a.toString(peerCore.key, "hex");
         if (peerStoresRef.current.has(peerKeyHex)) return; // Already tracking
@@ -104,7 +110,9 @@ export const MainContent = ({ searchTerm }) => {
 
         // When the peer's core gets new data, update our entries
         peerCore.on("append", () => {
-          console.log(`Peer ${peerKeyHex.slice(0, 6)}... appended data, updating.`);
+          console.log(
+            `Peer ${peerKeyHex.slice(0, 6)}... appended data, updating.`
+          );
           updateEntriesFromAllSources();
         });
 
@@ -118,12 +126,27 @@ export const MainContent = ({ searchTerm }) => {
       swarm.on("connection", (socket) => {
         console.log("New peer connection.");
         // This single line handles all replication and key exchanges automatically.
-        store.replicate(socket);
+        const stream = store.replicate(socket);
+
+        stream.on("error", (error) => {
+          console.error("Replication error:", error);
+        });
+
+        stream.on("close", () => {
+          console.log("Replication closed.");
+        });
+
+        stream.on("end", () => {
+          console.log("Replication ended.");
+        });
       });
 
       // Join the swarm on a topic derived from the seed
       await swarm.join(keyPairSeed, { server: true, client: true });
-      console.log("Joined swarm with public key:", b4a.toString(swarm.keyPair.publicKey, "hex"));
+      console.log(
+        "Joined swarm with public key:",
+        b4a.toString(swarm.keyPair.publicKey, "hex")
+      );
       console.log("My core key is:", b4a.toString(core.key, "hex"));
 
       // Initial load of data
@@ -197,7 +220,7 @@ export const MainContent = ({ searchTerm }) => {
     }
 
     try {
-      const originalEntry = entries.find(e => e.id === id)
+      const originalEntry = entries.find((e) => e.id === id);
       const entryToUpdate = {
         ...originalEntry,
         ...updatedData,
