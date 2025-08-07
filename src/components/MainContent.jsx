@@ -33,39 +33,81 @@ export const MainContent = ({ searchTerm }) => {
       // Use a map to handle duplicates across cores, keeping the latest version.
       const allEntriesMap = new Map();
 
-      const processBee = async (bee) => {
+      const processBee = async (bee, sourceName = "unknown") => {
         if (!bee) return;
-        await bee.ready();
-        for await (const { value } of bee.createReadStream()) {
-          try {
-            const entry = JSON.parse(value);
-            const existing = allEntriesMap.get(entry.id);
-            // If entry doesn't exist or the new one is more recent, add/update it.
-            if (
-              !existing ||
-              new Date(entry.updatedDate) > new Date(existing.updatedDate)
-            ) {
-              allEntriesMap.set(entry.id, entry);
+        try {
+          await bee.ready();
+          let count = 0;
+          for await (const { value } of bee.createReadStream()) {
+            try {
+              const entry = JSON.parse(value);
+              const existing = allEntriesMap.get(entry.id);
+              // If entry doesn't exist or the new one is more recent, add/update it.
+              if (!existing || new Date(entry.updatedDate) > new Date(existing.updatedDate)) {
+                allEntriesMap.set(entry.id, entry);
+              }
+              count++;
+            } catch (e) {
+              console.error("Failed to parse entry:", e, "Value:", value);
             }
-          } catch (e) {
-            console.error("Failed to parse entry:", e, "Value:", value);
           }
+          console.log(`Processed ${count} entries from ${sourceName}`);
+        } catch (error) {
+          console.error(`Error processing bee from ${sourceName}:`, error);
         }
       };
 
       // 1. Process our own entries
-      await processBee(writableBeeRef.current);
+      await processBee(writableBeeRef.current, "local");
 
       // 2. Process all connected peer entries
-      for (const { bee } of peerStoresRef.current.values()) {
-        await processBee(bee);
+      for (const [peerKey, { bee }] of peerStoresRef.current.entries()) {
+        await processBee(bee, `peer ${peerKey.slice(0, 6)}...`);
       }
 
       // 3. Update the state with the combined list
       const combinedEntries = Array.from(allEntriesMap.values());
+      console.log(`Total combined entries: ${combinedEntries.length}`);
       setEntries(combinedEntries);
     } catch (error) {
       console.error("Error updating entries from all sources:", error);
+    }
+  };
+
+  const setupPeerCore = async (peerCore) => {
+    const peerKeyHex = b4a.toString(peerCore.key, "hex");
+    
+    // Skip if already tracking this peer
+    if (peerStoresRef.current.has(peerKeyHex)) {
+      console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
+      return;
+    }
+
+    console.log("Setting up peer core:", peerKeyHex.slice(0, 6) + "...");
+
+    try {
+      // Wait for the core to be ready
+      await peerCore.ready();
+      
+      const peerBee = new Hyperbee(peerCore, {
+        keyEncoding: "utf-8",
+        valueEncoding: "utf-8",
+      });
+
+      await peerBee.ready();
+
+      peerStoresRef.current.set(peerKeyHex, { core: peerCore, bee: peerBee });
+
+      // When the peer's core gets new data, update our entries
+      peerCore.on("append", () => {
+        console.log(`Peer ${peerKeyHex.slice(0, 6)}... appended data, updating.`);
+        updateEntriesFromAllSources();
+      });
+
+      // Also update when we first discover them
+      await updateEntriesFromAllSources();
+    } catch (error) {
+      console.error(`Error setting up peer core ${peerKeyHex.slice(0, 6)}...:`, error);
     }
   };
 
@@ -84,70 +126,67 @@ export const MainContent = ({ searchTerm }) => {
       writableBeeRef.current = bee;
       await core.ready();
 
+      console.log("My core key is:", b4a.toString(core.key, "hex"));
+
       // Update UI whenever our own data changes
       core.on("append", updateEntriesFromAllSources);
 
-      // This event fires when any core is opened in the store,
-      // including peer cores discovered through replication.
+      // Setup core discovery handler
       store.on("core-open", (peerCore) => {
         // Ignore our own core
         if (b4a.equals(peerCore.key, core.key)) return;
-
-        console.log(
-          "Discovered a peer's core:",
-          b4a.toString(peerCore.key, "hex")
-        );
-
-        const peerKeyHex = b4a.toString(peerCore.key, "hex");
-        if (peerStoresRef.current.has(peerKeyHex)) return; // Already tracking
-
-        const peerBee = new Hyperbee(peerCore, {
-          keyEncoding: "utf-8",
-          valueEncoding: "utf-8",
-        });
-
-        peerStoresRef.current.set(peerKeyHex, { core: peerCore, bee: peerBee });
-
-        // When the peer's core gets new data, update our entries
-        peerCore.on("append", () => {
-          console.log(
-            `Peer ${peerKeyHex.slice(0, 6)}... appended data, updating.`
-          );
-          updateEntriesFromAllSources();
-        });
-
-        // Also update when we first discover them
-        updateEntriesFromAllSources();
+        setupPeerCore(peerCore);
       });
 
       const swarm = new Hyperswarm();
       swarmRef.current = swarm;
 
-      swarm.on("connection", (socket) => {
-        console.log("New peer connection.");
-        // This single line handles all replication and key exchanges automatically.
+      swarm.on("connection", async (socket, peerInfo) => {
+        console.log("New peer connection from:", peerInfo?.publicKey ? 
+          b4a.toString(peerInfo.publicKey, "hex").slice(0, 6) + "..." : "unknown");
+
+        // Create a replication stream for the store
         const stream = store.replicate(socket);
 
-        stream.on("error", (error) => {
-          console.error("Replication error:", error);
+        // IMPORTANT: Announce our core to the peer
+        // This tells the peer which cores we have that they should replicate
+        stream.on("open", () => {
+          console.log("Replication stream opened, announcing our core...");
+          // The store should handle this automatically, but we can be explicit
+          store.get({ key: core.key }); // Ensure our core is in the namespace
         });
 
-        stream.on("close", () => {
-          console.log("Replication closed.");
+        // Handle replication errors
+        stream.on("error", (err) => {
+          console.error("Replication error:", err);
         });
 
-        stream.on("end", () => {
-          console.log("Replication ended.");
-        });
+        // After replication starts, try to discover peer cores
+        // This is a workaround for cases where core-open doesn't fire
+        setTimeout(async () => {
+          try {
+            // Get all cores in the store's namespace
+            const cores = store.cores;
+            if (cores) {
+              for (const [, peerCore] of cores) {
+                if (!b4a.equals(peerCore.key, core.key)) {
+                  await setupPeerCore(peerCore);
+                }
+              }
+            }
+          } catch (error) {
+            console.error("Error discovering peer cores:", error);
+          }
+        }, 1000);
       });
 
       // Join the swarm on a topic derived from the seed
       await swarm.join(keyPairSeed, { server: true, client: true });
-      console.log(
-        "Joined swarm with public key:",
-        b4a.toString(swarm.keyPair.publicKey, "hex")
-      );
-      console.log("My core key is:", b4a.toString(core.key, "hex"));
+      
+      const discovery = swarm.join(keyPairSeed, { server: true, client: true });
+      await discovery.flushed();
+      
+      console.log("Joined swarm with public key:", b4a.toString(swarm.keyPair.publicKey, "hex"));
 
       // Initial load of data
       await updateEntriesFromAllSources();
@@ -192,7 +231,10 @@ export const MainContent = ({ searchTerm }) => {
       };
 
       await writableBeeRef.current.put(id, JSON.stringify(entryToSave));
+      console.log("Saved new entry:", id);
       setIsCreatingNew(false);
+      // Immediately update the UI
+      await updateEntriesFromAllSources();
     } catch (error) {
       console.error("Failed to save entry:", error);
     }
@@ -220,7 +262,7 @@ export const MainContent = ({ searchTerm }) => {
     }
 
     try {
-      const originalEntry = entries.find((e) => e.id === id);
+      const originalEntry = entries.find(e => e.id === id);
       const entryToUpdate = {
         ...originalEntry,
         ...updatedData,
@@ -228,7 +270,10 @@ export const MainContent = ({ searchTerm }) => {
       };
 
       await writableBeeRef.current.put(id, JSON.stringify(entryToUpdate));
+      console.log("Updated entry:", id);
       setSelectedEntry(null);
+      // Immediately update the UI
+      await updateEntriesFromAllSources();
     } catch (error) {
       console.error("Failed to update entry:", error);
     }
@@ -242,7 +287,10 @@ export const MainContent = ({ searchTerm }) => {
 
     try {
       await writableBeeRef.current.del(id);
+      console.log("Deleted entry:", id);
       setSelectedEntry(null);
+      // Immediately update the UI
+      await updateEntriesFromAllSources();
     } catch (error) {
       console.error("Failed to delete entry:", error);
     }
