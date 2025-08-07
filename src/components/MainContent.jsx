@@ -1,5 +1,3 @@
-// MainContent.jsx - Fixed version with proper core replication
-
 import { EntriesList } from "@src/components/EntriesList";
 import { DetailPanel } from "@src/components/DetailPanel";
 import { useState, useEffect, useMemo, useRef } from "react";
