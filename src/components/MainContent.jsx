@@ -95,12 +95,10 @@ export const MainContent = ({ searchTerm }) => {
         return;
       }
 
-      console.log("Setting up peer core:", peerKeyHex.slice(0, 6) + "...");
+      console.log("Setting up peer core:", peerKeyHex);
 
-      // Wait for the core to be ready
       await peerCore.ready();
       
-      // Start downloading the peer's data
       peerCore.download({ start: 0, end: -1 });
       
       const peerBee = new Hyperbee(peerCore, {
@@ -114,11 +112,10 @@ export const MainContent = ({ searchTerm }) => {
 
       // When the peer's core gets new data, update our entries
       peerCore.on("append", () => {
-        console.log(`Peer ${peerKeyHex.slice(0, 6)}... appended data, updating.`);
+        console.log(`Peer ${peerKeyHex} appended data, updating.`);
         updateEntriesFromAllSources();
       });
 
-      // Update when we first discover them
       await updateEntriesFromAllSources();
     } catch (error) {
       console.error(`Error setting up peer core:`, error);
@@ -144,29 +141,27 @@ export const MainContent = ({ searchTerm }) => {
         await bee.ready();
 
         const myCoreKeyHex = b4a.toString(core.key, "hex");
-        console.log("My core key is:", myCoreKeyHex);
 
-        // Update UI whenever our own data changes
         core.on("append", () => {
           console.log("Local data updated");
           updateEntriesFromAllSources();
         });
 
         // Listen for when new cores are added to the store
-        store.on("core-add", (core) => {
-          console.log("Core added event:", core.key ? b4a.toString(core.key, "hex").slice(0, 6) + "..." : "unknown");
-          if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
-            setupPeerCore(core);
-          }
-        });
+        // store.on("core-add", (core) => {
+        //   console.log("Core added event:", core.key ? b4a.toString(core.key, "hex") : "unknown");
+        //   if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
+        //     setupPeerCore(core);
+        //   }
+        // });
 
-        // Listen for when cores are opened
-        store.on("core-open", (core) => {
-          console.log("Core opened event:", core.key ? b4a.toString(core.key, "hex").slice(0, 6) + "..." : "unknown");
-          if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
-            setupPeerCore(core);
-          }
-        });
+        // // Listen for when cores are opened
+        // store.on("core-open", (core) => {
+        //   console.log("Core opened event:", core.key ? b4a.toString(core.key, "hex") : "unknown");
+        //   if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
+        //     setupPeerCore(core);
+        //   }
+        // });
 
         const swarm = new Hyperswarm();
         swarmRef.current = swarm;
@@ -175,8 +170,8 @@ export const MainContent = ({ searchTerm }) => {
         const activeConnections = new Map();
 
         swarm.on("connection", async (socket, peerInfo) => {
-          const peerId = peerInfo?.publicKey ? b4a.toString(peerInfo.publicKey, "hex") : `unknown-${Date.now()}`;
-          console.log("New peer connection from:", peerId.slice(0, 6) + "...");
+          const peerId = peerInfo.publicKey
+          console.log("New peer connection from:", peerId);
 
           // Track this connection
           activeConnections.set(peerId, socket);
@@ -239,7 +234,7 @@ export const MainContent = ({ searchTerm }) => {
               }
             };
 
-            socket.on("data", handleData);
+            socket.once("data", handleData); // changed on to once
 
           } catch (error) {
             console.error("Error setting up replication:", error);
@@ -248,10 +243,10 @@ export const MainContent = ({ searchTerm }) => {
 
         // Join the swarm on a topic derived from the seed
         const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
-        await discovery.flushed();
+        // await discovery.flushed();
         
-        console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
-        console.log("Active connections will appear above when peers connect");
+        // console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
+        // console.log("Active connections will appear above when peers connect");
 
         // Initial load of data
         await updateEntriesFromAllSources();
@@ -271,7 +266,7 @@ export const MainContent = ({ searchTerm }) => {
         storeRef.current.close().catch(console.error);
       }
     };
-  }, [keyPairSeed]); // Rerun if seed changes
+  }, []);
 
   const handleEntrySelect = (entry) => {
     if (selectedEntry?.id === entry.id) {
@@ -303,9 +298,8 @@ export const MainContent = ({ searchTerm }) => {
       };
 
       await writableBeeRef.current.put(id, JSON.stringify(entryToSave));
-      console.log("Saved new entry:", id);
+
       setIsCreatingNew(false);
-      // Immediately update the UI
       await updateEntriesFromAllSources();
     } catch (error) {
       console.error("Failed to save entry:", error);
@@ -347,9 +341,9 @@ export const MainContent = ({ searchTerm }) => {
       };
 
       await writableBeeRef.current.put(id, JSON.stringify(entryToUpdate));
-      console.log("Updated entry:", id);
+
       setSelectedEntry(null);
-      // Immediately update the UI
+
       await updateEntriesFromAllSources();
     } catch (error) {
       console.error("Failed to update entry:", error);
