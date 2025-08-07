@@ -128,7 +128,6 @@ export const MainContent = ({ searchTerm }) => {
         const store = new Corestore(Pear.config.storage);
         storeRef.current = store;
 
-        // Our own writable core and bee
         const core = store.get({ name: "passwords" });
         writableCoreRef.current = core;
         await core.ready();
@@ -137,6 +136,7 @@ export const MainContent = ({ searchTerm }) => {
           keyEncoding: "utf-8",
           valueEncoding: "utf-8",
         });
+
         writableBeeRef.current = bee;
         await bee.ready();
 
@@ -147,48 +147,17 @@ export const MainContent = ({ searchTerm }) => {
           updateEntriesFromAllSources();
         });
 
-        // Listen for when new cores are added to the store
-        // store.on("core-add", (core) => {
-        //   console.log("Core added event:", core.key ? b4a.toString(core.key, "hex") : "unknown");
-        //   if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
-        //     setupPeerCore(core);
-        //   }
-        // });
-
-        // // Listen for when cores are opened
-        // store.on("core-open", (core) => {
-        //   console.log("Core opened event:", core.key ? b4a.toString(core.key, "hex") : "unknown");
-        //   if (core.key && !b4a.equals(core.key, writableCoreRef.current.key)) {
-        //     setupPeerCore(core);
-        //   }
-        // });
 
         const swarm = new Hyperswarm();
         swarmRef.current = swarm;
 
-        // Track active connections
-        const activeConnections = new Map();
 
         swarm.on("connection", async (socket, peerInfo) => {
           const peerId = peerInfo.publicKey
           console.log("New peer connection from:", peerId);
 
-          // Track this connection
-          activeConnections.set(peerId, socket);
-
-          // Handle disconnection
-          socket.on("close", () => {
-            console.log("Peer disconnected:", peerId.slice(0, 6) + "...");
-            activeConnections.delete(peerId);
-          });
-
-          socket.on("error", (err) => {
-            console.error("Socket error with peer", peerId.slice(0, 6) + "...:", err.message);
-            activeConnections.delete(peerId);
-          });
-
           try {
-            // Replicate the store with this peer
+            
             const stream = store.replicate(socket);
             
             stream.on("error", (err) => {
@@ -234,7 +203,7 @@ export const MainContent = ({ searchTerm }) => {
               }
             };
 
-            socket.once("data", handleData); // changed on to once
+            socket.once("data", handleData); 
 
           } catch (error) {
             console.error("Error setting up replication:", error);
@@ -243,12 +212,7 @@ export const MainContent = ({ searchTerm }) => {
 
         // Join the swarm on a topic derived from the seed
         const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
-        // await discovery.flushed();
-        
-        // console.log("Joined swarm with topic:", b4a.toString(keyPairSeed, "hex").slice(0, 12) + "...");
-        // console.log("Active connections will appear above when peers connect");
-
-        // Initial load of data
+  
         await updateEntriesFromAllSources();
       } catch (error) {
         console.error("Error initializing:", error);
