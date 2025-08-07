@@ -4,11 +4,11 @@ import { PasswordInput } from "@src/components/ui/PasswordInput";
 import { RecoveryWords } from "@src/components/ui/RecoveryWords";
 import { generateMnemonic, mnemonicToEntropy } from "web-bip39";
 import wordlist from "web-bip39/wordlists/english";
-import { getKeyPairSeed } from "@src/lib/utils";
-import { useKeyPairSeed } from "@src/contexts/KeyPairContext";
+import { getAppWideSeed } from "@src/lib/utils";
+import { useAppWideSeed } from "@src/contexts/AppWideSeedContext";
 
 const Setup = ({ onSetupComplete }) => {
-  const { setKeyPairSeed } = useKeyPairSeed();
+  const { setAppWideSeed } = useAppWideSeed();
   const [setupMode, setSetupMode] = useState(null); // "new", "existing", null
   const [recoveryWords, setRecoveryWords] = useState([]); // when setupMode is existing and we have recovery words from the user
   const [password, setPassword] = useState("");
@@ -22,8 +22,8 @@ const Setup = ({ onSetupComplete }) => {
     const seedHex = Buffer.from(seed).toString("hex");
     localStorage.setItem("seed", seedHex);
 
-    const keyPairSeed = await getKeyPairSeed(seedHex, password);
-    setKeyPairSeed(keyPairSeed);
+    const appWideSeed = await getAppWideSeed(seedHex, password);
+    setAppWideSeed(appWideSeed);
     onSetupComplete();
   };
 

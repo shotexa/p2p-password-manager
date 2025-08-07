@@ -14,7 +14,7 @@ export async function sha256Uint8Array(str) {
 
 }
 
-export async function getKeyPairSeed(mnemonicSeed, password) {
+export async function getAppWideSeed(mnemonicSeed, password) {
   if (!mnemonicSeed || !password) {
     throw new Error("Both mnemonicSeed and password are required");
   }

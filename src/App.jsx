@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Index from "@src/pages/Index";
 import Setup from "@src/pages/Setup";
 import UnlockScreen from "@src/components/UnlockScreen";
-import { KeyPairSeedProvider } from "@src/contexts/KeyPairContext";
+import { AppWideSeedProvider } from "@src/contexts/AppWideSeedContext";
 import "@src/App.css";
 
 function App() {
@@ -15,23 +15,23 @@ function App() {
   }, []);
 
   return (
-    <KeyPairSeedProvider>
+    <AppWideSeedProvider>
       {isUnlocked ? (
         <Index />
       ) : setupNeeded ? (
         <Setup
-          onSetupComplete={(keyPairSeed) => {
+          onSetupComplete={(appWideSeed) => {
             setIsUnlocked(true);
           }}
         />
       ) : (
         <UnlockScreen
-          onUnlock={(keyPairSeed) => {
+          onUnlock={(appWideSeed) => {
             setIsUnlocked(true);
           }}
         />
       )}
-    </KeyPairSeedProvider>
+    </AppWideSeedProvider>
   );
 }
 

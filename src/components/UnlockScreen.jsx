@@ -1,20 +1,20 @@
 import * as React from "react";
 import { Button } from "@src/components/ui/button";
 import { PasswordInput } from "@src/components/ui/PasswordInput";
-import { getKeyPairSeed } from "@src/lib/utils";
-import { useKeyPairSeed } from "@src/contexts/KeyPairContext";
+import { getAppWideSeed } from "@src/lib/utils";
+import { useAppWideSeed } from "@src/contexts/AppWideSeedContext";
 
 const UnlockScreen = ({ onUnlock }) => {
-  const { setKeyPairSeed } = useKeyPairSeed();
+  const { setAppWideSeed } = useAppWideSeed();
   const [password, setPassword] = React.useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
    
     const seed = localStorage.getItem("seed");
-    const keyPairSeed = await getKeyPairSeed(seed, password);
+    const appWideSeed = await getAppWideSeed(seed, password);
 
-    setKeyPairSeed(keyPairSeed);
+    setAppWideSeed(appWideSeed);
     onUnlock();
   };
 

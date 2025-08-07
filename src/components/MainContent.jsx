@@ -5,11 +5,11 @@ import Corestore from "corestore";
 import Hyperbee from "hyperbee";
 import Hyperswarm from "hyperswarm";
 import { v4 as uuidv4 } from "uuid";
-import { useKeyPairSeed } from "@src/contexts/KeyPairContext";
+import { useAppWideSeed } from "@src/contexts/AppWideSeedContext";
 import b4a from "b4a";
 
 export const MainContent = ({ searchTerm }) => {
-  const { keyPairSeed } = useKeyPairSeed();
+  const { appWideSeed } = useAppWideSeed();
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [entries, setEntries] = useState([]);
@@ -42,7 +42,10 @@ export const MainContent = ({ searchTerm }) => {
               const entry = JSON.parse(value);
               const existing = allEntriesMap.get(entry.id);
               // If entry doesn't exist or the new one is more recent, add/update it.
-              if (!existing || new Date(entry.updatedDate) > new Date(existing.updatedDate)) {
+              if (
+                !existing ||
+                new Date(entry.updatedDate) > new Date(existing.updatedDate)
+              ) {
                 allEntriesMap.set(entry.id, entry);
               }
               count++;
@@ -59,7 +62,7 @@ export const MainContent = ({ searchTerm }) => {
       await processBee(writableBeeRef.current, "local");
 
       for (const [peerKey, { bee }] of peerStoresRef.current.entries()) {
-        await processBee(bee, `peer ${peerKey.slice(0, 6)}...`);
+        await processBee(bee, `peer ${peerKey}`);
       }
 
       const combinedEntries = Array.from(allEntriesMap.values());
@@ -72,15 +75,14 @@ export const MainContent = ({ searchTerm }) => {
 
   const setupPeerCore = async (peerCore) => {
     try {
-
       const peerKeyHex = b4a.toString(peerCore.key, "hex");
-      
+
       console.log("Setting up peer core:", peerKeyHex);
 
       await peerCore.ready();
-      
+
       peerCore.download({ start: 0, end: -1 });
-      
+
       const peerBee = new Hyperbee(peerCore, {
         keyEncoding: "utf-8",
         valueEncoding: "utf-8",
@@ -126,41 +128,41 @@ export const MainContent = ({ searchTerm }) => {
           updateEntriesFromAllSources();
         });
 
-
         const swarm = new Hyperswarm();
         swarmRef.current = swarm;
 
-
         swarm.on("connection", async (socket, peerInfo) => {
-          const peerId = peerInfo.publicKey
+          const peerId = peerInfo.publicKey;
           console.log("New peer connection from:", peerId);
 
           try {
-            
             const stream = store.replicate(socket);
-            
+
             stream.on("error", (err) => {
               console.error("Replication stream error:", err.message);
             });
 
-            
             socket.write(core.key);
 
             // Listen for peer's core key
             socket.once("data", async (data) => {
-              const peerCore = store.get({ key: data, valueEncoding: "binary" });
-                      
+              const peerCore = store.get({
+                key: data,
+                valueEncoding: "binary",
+              });
+
               await setupPeerCore(peerCore);
-
-            }); 
-
+            });
           } catch (error) {
             console.error("Error setting up replication:", error);
           }
         });
 
-        const discovery = await swarm.join(keyPairSeed, { server: true, client: true });
-  
+        await swarm.join(appWideSeed, {
+          server: true,
+          client: true,
+        });
+
         await updateEntriesFromAllSources();
       } catch (error) {
         console.error("Error initializing:", error);
@@ -170,7 +172,6 @@ export const MainContent = ({ searchTerm }) => {
     init();
 
     return () => {
-      // Cleanup on component unmount
       if (swarmRef.current) {
         swarmRef.current.destroy().catch(console.error);
       }
@@ -240,7 +241,7 @@ export const MainContent = ({ searchTerm }) => {
     }
 
     try {
-      const originalEntry = entries.find(e => e.id === id);
+      const originalEntry = entries.find((e) => e.id === id);
       if (!originalEntry) {
         console.error("Original entry not found");
         return;
