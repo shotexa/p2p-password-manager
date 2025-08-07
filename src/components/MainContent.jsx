@@ -83,7 +83,6 @@ export const MainContent = ({ searchTerm }) => {
 
       const peerKeyHex = b4a.toString(peerCore.key, "hex");
       
-      // Skip if already tracking this peer
       if (peerStoresRef.current.has(peerKeyHex)) {
         console.log(`Already tracking peer ${peerKeyHex.slice(0, 6)}...`);
         return;
@@ -172,35 +171,14 @@ export const MainContent = ({ searchTerm }) => {
               name: "passwords"
             }) + "\n");
             
-            socket.write(announcement);
+            socket.write(core.key);
 
             // Listen for peer's core key
-            let buffer = "";
             const handleData = async (data) => {
-              buffer += data.toString();
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
-
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                  const msg = JSON.parse(line);
-                  if (msg.type === "core-key" && msg.key && msg.name === "passwords") {
-                    console.log("Received peer core key:", msg.key.slice(0, 6) + "...");
-                    
-                    if (msg.key !== myCoreKeyHex) {
-                      // Get or create the peer's core in our store
-                      const peerCoreKey = b4a.from(msg.key, "hex");
-                      const peerCore = store.get({ key: peerCoreKey, valueEncoding: "binary" });
+              const peerCore = store.get({ key: data, valueEncoding: "binary" });
                       
-                      // Set up the peer core
-                      await setupPeerCore(peerCore);
-                    }
-                  }
-                } catch (e) {
-                  // Not JSON or not our message, ignore
-                }
-              }
+              await setupPeerCore(peerCore);
+
             };
 
             socket.once("data", handleData); 
